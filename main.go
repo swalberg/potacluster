@@ -2,11 +2,16 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
+	"sort"
 	"strings"
+	"time"
 )
 
 var flagIP = flag.String("ip", "127.0.0.1", "IP address to listen on")
@@ -18,11 +23,45 @@ type client struct {
 	Message  chan string
 }
 
-var connections map[string]*client
+var (
+	connections map[string]*client
+	spots       Spots
+	maxSpotID   int
+)
+
+func blast(msg string) {
+	for _, c := range connections {
+		writeFormattedMsg(c.Conn, msg)
+	}
+}
 
 func main() {
 	flag.Parse()
 	connections = make(map[string]*client, 0)
+
+	go func() {
+		for {
+			fmt.Println("fetching spots")
+			err := getSpots(&spots)
+			if err != nil {
+				fmt.Println(err)
+			}
+			sort.SliceStable(spots, func(i, j int) bool {
+				return spots[i].SpotID < spots[j].SpotID
+			})
+
+			if spots[0].SpotID > maxSpotID {
+				for _, s := range spots {
+					if s.SpotID > maxSpotID {
+						blast(s.ToClusterFormat())
+					}
+				}
+			}
+
+			maxSpotID = spots[0].SpotID
+			time.Sleep(30 * time.Second)
+		}
+	}()
 
 	//start listener
 	listener, err := net.Listen("tcp", *flagIP+":"+*flagPort)
@@ -39,10 +78,7 @@ func main() {
 		}
 		//create new client on connection
 		go createclient(conn)
-
-		for _, c := range connections {
-			c.Message <- "someone has joined!"
-		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -57,7 +93,21 @@ func (c *client) recieve() {
 		msg := <-c.Message
 		log.Printf("recieve: client(%v|%v) recvd msg: %s ", c.Conn.RemoteAddr(), c.CallSign, msg)
 		writeFormattedMsg(c.Conn, msg)
+		time.Sleep(time.Millisecond)
 	}
+}
+
+func getSpots(target interface{}) error {
+
+	var myClient = &http.Client{Timeout: 10 * time.Second}
+
+	r, err := myClient.Get("https://api.pota.us/spot/activator")
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+
+	return json.NewDecoder(r.Body).Decode(target)
 }
 
 func createclient(conn net.Conn) {
@@ -82,12 +132,16 @@ func createclient(conn net.Conn) {
 
 	connections[client.CallSign] = client
 
+	for _, s := range spots {
+		writeFormattedMsg(conn, s.ToClusterFormat())
+	}
+
 	//spin off seperate send, recieve
 	go client.recieve()
 }
 
 func writeFormattedMsg(conn net.Conn, msg interface{}) error {
-	_, err := conn.Write([]byte("---------------------------\n"))
+	var err error
 	t := reflect.ValueOf(msg)
 	switch t.Kind() {
 	case reflect.Map:
@@ -100,7 +154,6 @@ func writeFormattedMsg(conn net.Conn, msg interface{}) error {
 		_, err = conn.Write([]byte(v + "\n"))
 		break
 	} //switch
-	conn.Write([]byte("---------------------------\n"))
 
 	if err != nil {
 		return err
