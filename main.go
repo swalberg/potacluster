@@ -90,6 +90,7 @@ func main() {
 func (c *client) close() {
   c.Conn.Close()
   c.Message <- "\\quit"
+  log.Printf("Client closed! %s | %s", c.Conn.RemoteAddr(), c.CallSign)
   delete(connections, c.CallSign)
 }
 
