@@ -50,7 +50,12 @@ func main() {
 				return spots[i].SpotID < spots[j].SpotID
 			})
 
-			if spots[0].SpotID > maxSpotID {
+			if len(spots) == 0 {
+        fmt.Println("No spots returned")
+        time.Sleep(30 * time.Second)
+        continue
+      }
+      if spots[0].SpotID > maxSpotID {
 				for _, s := range spots {
 					if s.SpotID > maxSpotID {
 						blast(s.ToClusterFormat())
