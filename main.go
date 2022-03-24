@@ -107,7 +107,7 @@ func getSpots(target interface{}) error {
 
   var myClient = &http.Client{Timeout: 10 * time.Second}
 
-  r, err := myClient.Get("https://api.pota.us/spot/activator")
+  r, err := myClient.Get("https://api.pota.app/spot/activator")
   if err != nil {
     return err
   }
