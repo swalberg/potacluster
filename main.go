@@ -41,7 +41,7 @@ func main() {
 
 	go func() {
 		for {
-			fmt.Println("fetching spots")
+			log.Println("fetching spots")
 			err := getSpots(&spots)
 			if err != nil {
 				fmt.Println(err)
@@ -50,15 +50,18 @@ func main() {
 				return spots[i].SpotID < spots[j].SpotID
 			})
 
-			if spots[0].SpotID > maxSpotID {
-				for _, s := range spots {
-					if s.SpotID > maxSpotID {
-						blast(s.ToClusterFormat())
+			if len(spots) > 1 {
+
+				if spots[0].SpotID > maxSpotID {
+					for _, s := range spots {
+						if s.SpotID > maxSpotID {
+							blast(s.ToClusterFormat())
+						}
 					}
 				}
-			}
 
-			maxSpotID = spots[0].SpotID
+				maxSpotID = spots[0].SpotID
+			}
 			time.Sleep(30 * time.Second)
 		}
 	}()
@@ -88,11 +91,17 @@ func (c *client) close() {
 	delete(connections, c.CallSign)
 }
 
-func (c *client) recieve() {
+func (c *client) receive() {
+	defer c.close()
+
 	for {
-		msg := <-c.Message
-		log.Printf("recieve: client(%v|%v) recvd msg: %s ", c.Conn.RemoteAddr(), c.CallSign, msg)
-		writeFormattedMsg(c.Conn, msg)
+		userInput, err := bufio.NewReader(c.Conn).ReadString('\n')
+		if err != nil {
+			log.Printf("receive: client(%v|%v) recvd msg with error: %s ", c.Conn.RemoteAddr(), c.CallSign, err.Error())
+			return
+		}
+		log.Printf("receive: client(%v|%v) recvd msg: %s ", c.Conn.RemoteAddr(), c.CallSign, userInput)
+
 		time.Sleep(time.Millisecond)
 	}
 }
@@ -116,7 +125,7 @@ func createclient(conn net.Conn) {
 
 	callSign, err := readInput(conn, "Login: ")
 	if err != nil {
-		panic(err)
+		log.Printf("%s", err)
 	}
 
 	writeFormattedMsg(conn, "Welcome "+callSign)
@@ -136,8 +145,8 @@ func createclient(conn net.Conn) {
 		writeFormattedMsg(conn, s.ToClusterFormat())
 	}
 
-	//spin off seperate send, recieve
-	go client.recieve()
+	//spin off seperate send, receive
+	go client.receive()
 }
 
 func writeFormattedMsg(conn net.Conn, msg interface{}) error {
@@ -151,7 +160,10 @@ func writeFormattedMsg(conn net.Conn, msg interface{}) error {
 		break
 	case reflect.String:
 		v := reflect.ValueOf(msg).String()
-		_, err = conn.Write([]byte(v + "\n"))
+		if !strings.HasSuffix(v, "\n") {
+			v += "\n"
+		}
+		_, err = conn.Write([]byte(v))
 		break
 	} //switch
 
