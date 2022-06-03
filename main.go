@@ -18,9 +18,9 @@ var flagIP = flag.String("ip", "127.0.0.1", "IP address to listen on")
 var flagPort = flag.String("port", "7300", "Port to listen on")
 
 type client struct {
-	Conn     net.Conn
-	CallSign string
-	Message  chan string
+	Conn    net.Conn
+	User    user
+	Message chan string
 }
 
 var (
@@ -88,7 +88,11 @@ func main() {
 func (c *client) close() {
 	c.Conn.Close()
 	c.Message <- "\\quit"
-	delete(connections, c.CallSign)
+	delete(connections, c.id())
+}
+
+func (c *client) id() string {
+	return c.Conn.RemoteAddr().String()
 }
 
 func (c *client) receive() {
@@ -97,10 +101,11 @@ func (c *client) receive() {
 	for {
 		userInput, err := bufio.NewReader(c.Conn).ReadString('\n')
 		if err != nil {
-			log.Printf("receive: client(%v|%v) recvd msg with error: %s ", c.Conn.RemoteAddr(), c.CallSign, err.Error())
+			log.Printf("receive: client(%v|%v) recvd msg with error: %s ", c.Conn.RemoteAddr(), c.User.CallSign, err.Error())
 			return
 		}
-		log.Printf("receive: client(%v|%v) recvd msg: %s ", c.Conn.RemoteAddr(), c.CallSign, userInput)
+		userInput = strings.TrimSuffix(userInput, "\n")
+		log.Printf("receive: client(%v|%v) recvd msg: %s ", c.Conn.RemoteAddr(), c.User.CallSign, userInput)
 
 		time.Sleep(time.Millisecond)
 	}
@@ -110,7 +115,7 @@ func getSpots(target interface{}) error {
 
 	var myClient = &http.Client{Timeout: 10 * time.Second}
 
-	r, err := myClient.Get("https://api.pota.us/spot/activator")
+	r, err := myClient.Get("https://api.pota.app/spot/activator")
 	if err != nil {
 		return err
 	}
@@ -130,16 +135,19 @@ func createclient(conn net.Conn) {
 
 	writeFormattedMsg(conn, "Welcome "+callSign)
 
-	//init client struct
-	client := &client{
-		Message:  make(chan string),
-		Conn:     conn,
+	user := &user{
 		CallSign: callSign,
 	}
+	//init client struct
+	client := &client{
+		Message: make(chan string),
+		Conn:    conn,
+		User:    *user,
+	}
 
-	log.Printf("new client created: %v %v", client.Conn.RemoteAddr(), client.CallSign)
+	log.Printf("new client created: %v %v", client.Conn.RemoteAddr(), client.User.CallSign)
 
-	connections[client.CallSign] = client
+	connections[client.id()] = client
 
 	for _, s := range spots {
 		writeFormattedMsg(conn, s.ToClusterFormat())
