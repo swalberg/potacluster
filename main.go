@@ -50,7 +50,7 @@ func main() {
 				return spots[i].SpotID < spots[j].SpotID
 			})
 
-			if len(spots) > 1 {
+			if len(spots) > 0 {
 
 				if spots[0].SpotID > maxSpotID {
 					for _, s := range spots {
